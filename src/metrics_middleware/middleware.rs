@@ -10,7 +10,7 @@ const METRICS_END_POINT: &str = "/metrics";
 pub struct MetricsMiddleware {}
 
 impl MetricsMiddleware {
-    fn new() -> MetricsMiddleware {
+    pub fn new() -> MetricsMiddleware {
         Self {}
     }
 }
