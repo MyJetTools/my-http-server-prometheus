@@ -1,42 +1,47 @@
+use crate::metrics::{MyMetrics, MyMetricsFactory};
 use async_trait::async_trait;
 use my_http_server::{
-    HttpContext, HttpFailResult, HttpOkResult, HttpServerMiddleware, MiddleWareResult,
+    HttpContext, HttpFailResult, HttpOkResult, HttpServerMiddleware, HttpServerRequestFlow,
     WebContentType,
 };
-
-use crate::metrics::{MyMetrics, MyMetricsFactory};
 
 const METRICS_END_POINT: &str = "/metrics";
 
 pub struct MetricsMiddleware {}
 
 impl MetricsMiddleware {
-    fn new() -> MetricsMiddleware {
+    pub fn new() -> MetricsMiddleware {
         Self {}
     }
 }
 
 #[async_trait]
 impl HttpServerMiddleware for MetricsMiddleware {
-    async fn handle_request(&self, ctx: HttpContext) -> Result<MiddleWareResult, HttpFailResult> {
+    async fn handle_request(
+        &self,
+        ctx: &mut HttpContext,
+        get_next: &mut HttpServerRequestFlow,
+    ) -> Result<HttpOkResult, HttpFailResult> {
         let metrics = MyMetrics {};
-        let histogram =
-            metrics.create_duration_timer(ctx.get_method().as_ref(), ctx.req.uri().path());
-        let path = ctx.get_path_lower_case();
-
-        if !path.starts_with(METRICS_END_POINT) {
-            histogram.observe_duration(); //todo Подумать куда вынести конец подсчета и как это сделать
-            return Ok(MiddleWareResult::Next(ctx));
-        }
-
+        let path = ctx.request.get_path_lower_case();
         if path == METRICS_END_POINT {
             let buffer = metrics.get_my_metrics();
-            return Ok(MiddleWareResult::Ok(HttpOkResult::Content {
+            return Ok(HttpOkResult::Content {
                 content_type: Some(WebContentType::Text),
                 content: buffer,
-            }));
+            });
+        }
+        let histogram = metrics
+            .create_duration_timer(ctx.request.get_method().as_ref(), ctx.request.get_path());
+
+        if !path.starts_with(METRICS_END_POINT) {
+            let result = get_next.next(ctx).await;
+            histogram.observe_duration();
+            return result;
         }
 
-        return Ok(MiddleWareResult::Next(ctx));
+        let result = get_next.next(ctx).await;
+        histogram.observe_duration();
+        result
     }
 }
